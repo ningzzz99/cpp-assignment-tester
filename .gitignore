@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# Generated reports (keep the directory)
+reports/*
+!reports/.gitkeep
+
+# Compiled artifacts and debug symbols
+*.o
+*.out
+*.dSYM/
+
+# macOS / editors
+.DS_Store
+.vscode/

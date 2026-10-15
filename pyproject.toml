@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cppgrader"
+version = "0.1.0"
+description = "Compile, run and grade C++17 assignment submissions, with optional local-AI explanations."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []  # runtime is standard-library only
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+cppgrader = "cppgrader.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
