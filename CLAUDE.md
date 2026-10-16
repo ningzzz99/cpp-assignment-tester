@@ -30,7 +30,7 @@ Package `src/cppgrader/` (update this list when modules change):
 | `report.py` | `build_report`, `report_to_json`, `write_report` (atomic), `ReportWriteError`; format in `docs/report-format.md` | implemented |
 | `runner.py` | `run_case`, `run_suite`, `grade_submission` (optional caller-owned `build_dir`): run binary with stdin, timeout, output cap, minimal env, signal/exit classification | implemented |
 
-Sanitizer builds use `compile_cpp(..., sanitizers=...)`; AddressSanitizer does not run on the dev machine (UBSan does). `examples/average_calculator/` holds a sample solution and `tests.json`; `tests/fixtures/*.cpp` are small C++ programs used by the tests.
+Sanitizer builds use `compile_cpp(..., sanitizers=...)`; AddressSanitizer does not run on the dev machine (UBSan does). `examples/average_calculator/` holds a sample solution and `tests.json`; `examples/faulty_programs/` holds demo failures (compile error, wrong answer, UBSan overflow + `ubsan_tests.json`); `tests/fixtures/*.cpp` are small C++ programs used by the tests.
 
 ## 4. Development commands
 
@@ -78,7 +78,7 @@ Installing the package or dev extras (`pip install -e ".[dev]"`) changes the env
 
 ## 9. Project roadmap
 
-Phase numbers beyond 6 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
+Phase numbers beyond 7 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -88,6 +88,7 @@ Phase numbers beyond 6 are not defined in the repository; do not invent them. St
 | 4 | Structured JSON reports (`report.py`) | complete (committed; 102 passed when verified, 2026-10-16) |
 | 5 | Grading CLI and sanitizer mode | implemented and verified (133 passed, 1 skipped (real-ASan test; ASan unusable here), smoke check ok, 2026-10-16); committed |
 | 6 | Optional local AI debugging suggestions (`ai.py`, `grade --ai`; advisory only) | implemented and verified (206 passed, 1 skipped; real local model exercised, 2026-10-16), committed |
+| 7 | Portfolio finalization: README rewrite, demo programs in `examples/faulty_programs/`, packaging/setup verification | complete (206 passed, 1 skipped, 2026-10-16); no new features |
 
 Update this table only from verified evidence, and never mark a phase complete merely because it was requested.
 

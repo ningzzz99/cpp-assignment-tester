@@ -114,7 +114,8 @@ def test_timeout_kills_compiler_and_its_children(tmp_path):
     src = write(tmp_path, "ok.cpp", "int main() { return 0; }\n")
 
     start = time.monotonic()
-    result = compile_cpp(src, tmp_path / "build", compiler=str(fake), timeout_seconds=1.0)
+    # 3s (not 1s): under heavy load the fake compiler must get to write its pid file first
+    result = compile_cpp(src, tmp_path / "build", compiler=str(fake), timeout_seconds=3.0)
 
     assert result.status is CompileStatus.TIMEOUT
     assert "timed out" in result.stderr

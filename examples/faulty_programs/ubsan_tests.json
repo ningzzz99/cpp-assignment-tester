@@ -1,0 +1,6 @@
+{
+  "assignment": "UBSan demo",
+  "tests": [
+    { "name": "prints_ok", "expected_output": "ok\n", "timeout_seconds": 2 }
+  ]
+}
