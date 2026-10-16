@@ -1,7 +1,7 @@
 # cppgrader — C++ Assignment Tester and AI Debugging Assistant
 
-> **Status: early development (Phase 3).** Compilation, test loading and execution
-> exist as library modules; the grading CLI, reports, sanitizers and AI features do not yet.
+> **Status: early development (Phase 5).** Compilation, test loading, execution, JSON
+> reports, a `grade` CLI and opt-in sanitizer mode exist; AI features do not yet.
 >
 > **⚠️ Security: this is a development prototype and NOT a sandbox.** It compiles and
 > executes native code with your user's privileges (files, network, processes).
@@ -27,6 +27,48 @@ From the repository root:
 PYTHONPATH=src python3 -m cppgrader.cli --check          # verify prerequisites
 PYTHONPATH=src python3 -m cppgrader.cli --check --smoke  # also compile + run the example
 ```
+
+## Grading from the command line
+```bash
+PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade SOURCE.cpp TESTS.json [--report PATH] \
+    [--sanitize address|undefined]... [--compile-timeout SECONDS]
+
+# example
+PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade \
+    examples/average_calculator/solution.cpp examples/average_calculator/tests.json \
+    --report reports/average_calculator.json
+```
+`--help` lists the options. Output is one `PASS`/`FAIL` line per test (with a diff, and
+stderr for failures) and a final `RESULT:` line; it only says `PASSED` if the program
+compiled and every test passed. `--report` writes the JSON report atomically (replacing any
+existing file); see [docs/report-format.md](docs/report-format.md).
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Compiled and every test passed |
+| 1 | Grading failure: compile error, failed test(s), or a suite with no executed tests |
+| 2 | Usage or tool/configuration error: bad arguments or test file, missing source or compiler, unusable sanitizer |
+| 3 | Grading finished but the report could not be written (the result is still printed) |
+
+### Sanitizer mode
+`--sanitize undefined` and/or `--sanitize address` build with Clang's UndefinedBehavior and
+AddressSanitizer plus `-fno-sanitize-recover=all` (so a detected defect aborts rather than
+being printed and ignored). Without `--sanitize`, compilation is unchanged.
+- Before grading, a tiny trusted probe program is built and run with the requested sanitizers.
+  If that fails, the CLI exits 2 with the reason and grades nothing.
+- A test fails as `sanitizer_error` when a sanitizer-format diagnostic appears on stderr **and**
+  the program terminated abnormally (non-zero exit or signal; sanitized builds abort on a finding).
+  Look-alike text from a program that exits 0 is not treated as a finding, so a program cannot
+  fail (or be mistaken for failing) merely by printing "runtime error:". A program could still
+  forge such text and then fail on purpose; that only makes it fail. Precedence:
+  timeout, output limit, sanitizer, crash, non-zero exit, wrong output.
+- If the sanitizer runtime itself cannot start (and the program exited abnormally), the test is a
+  `runner_error`, not blamed on the program.
+- `--report` refuses to overwrite the source or test file (exit 2).
+- **Verified on the development machine (Apple clang 14.0.3):** UBSan works; AddressSanitizer
+  builds but aborts at startup ("Interceptors are not working"), so the probe rejects it there.
+  ASan has therefore not been exercised against real memory errors. Sanitizers add run-time
+  and memory overhead and find defects in cooperative code; they are not a security measure.
 
 ## Test-case JSON format
 ```json

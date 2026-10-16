@@ -28,6 +28,7 @@ class CompileResult:
     binary_path: Path | None = None
     build_dir: Path | None = None
     _owns_build_dir: bool = field(default=False, repr=False)
+    sanitizers: tuple[str, ...] = ()  # sanitizers the binary was instrumented with
 
     @property
     def ok(self) -> bool:
@@ -70,6 +71,7 @@ class FailureCategory(str, Enum):
     CRASH = "crash"  # terminated by a signal
     TIMEOUT = "timeout"
     OUTPUT_LIMIT = "output_limit_exceeded"
+    SANITIZER = "sanitizer_error"  # a sanitizer reported a defect in the program
     RUNNER_ERROR = "runner_error"  # the grader could not start the program
 
 

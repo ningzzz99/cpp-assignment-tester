@@ -9,22 +9,41 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Sequence
 
 from .models import CompileResult, CompileStatus
 
 DEFAULT_COMPILER = "clang++"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 WARNING_FLAGS = ["-Wall", "-Wextra", "-Wpedantic"]
+SUPPORTED_SANITIZERS = ("address", "undefined")
 KILL_GRACE_SECONDS = 5.0  # how long to wait for output pipes to close after a kill
 
 
-def build_command(compiler: str, source: Path, binary: Path) -> list[str]:
+def sanitizer_flags(sanitizers: Sequence[str]) -> list[str]:
+    """Extra flags for an instrumented build; empty when no sanitizer is requested.
+
+    `-fno-sanitize-recover=all` makes a detected defect abort the program with a
+    non-zero status instead of printing a message and carrying on (UBSan's default).
+    """
+    if not sanitizers:
+        return []
+    unknown = sorted(set(sanitizers) - set(SUPPORTED_SANITIZERS))
+    if unknown:
+        raise ValueError(f"Unsupported sanitizer(s) {unknown}; supported: {list(SUPPORTED_SANITIZERS)}")
+    names = ",".join(dict.fromkeys(sanitizers))  # de-duplicated, order kept
+    return [f"-fsanitize={names}", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer", "-g"]
+
+
+def build_command(compiler: str, source: Path, binary: Path,
+                  sanitizers: Sequence[str] = ()) -> list[str]:
     """Return the argument list (never a shell string) for a C++17 compile.
 
     `-x c++` makes clang treat the file as C++ regardless of extension, and the
     absolute `source` path cannot be mistaken for an option.
     """
-    return [compiler, "-std=c++17", *WARNING_FLAGS, "-x", "c++", str(source), "-o", str(binary)]
+    return [compiler, "-std=c++17", *WARNING_FLAGS, *sanitizer_flags(sanitizers),
+            "-x", "c++", str(source), "-o", str(binary)]
 
 
 def _kill_group(proc: subprocess.Popen) -> None:
@@ -40,6 +59,7 @@ def compile_cpp(
     *,
     compiler: str = DEFAULT_COMPILER,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    sanitizers: Sequence[str] = (),
 ) -> CompileResult:
     """Compile `source` into `build_dir` (a fresh temp directory when omitted).
 
@@ -49,6 +69,7 @@ def compile_cpp(
     enough to create it. It is removed here only when an exception escapes.
     """
     start = time.monotonic()
+    sanitizer_flags(sanitizers)  # validate names up front (ValueError = programmer error)
 
     def failure(status: CompileStatus, command: list[str], message: str, **kw) -> CompileResult:
         return CompileResult(status, command, kw.pop("returncode", None), kw.pop("stdout", ""),
@@ -65,7 +86,8 @@ def compile_cpp(
 
     owns_dir = build_dir is None
     out_dir = Path(tempfile.mkdtemp(prefix="cppgrader-build-")) if owns_dir else Path(build_dir)
-    dir_info = {"build_dir": out_dir, "_owns_build_dir": owns_dir}
+    dir_info = {"build_dir": out_dir, "_owns_build_dir": owns_dir,
+                "sanitizers": tuple(dict.fromkeys(sanitizers))}
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -84,7 +106,7 @@ def compile_cpp(
                          f"Could not remove stale binary '{binary}': {exc}", **dir_info)
         result.cleanup()
         return result
-    command = build_command(compiler_path, source_path, binary)
+    command = build_command(compiler_path, source_path, binary, sanitizers)
 
     try:
         proc = subprocess.Popen(

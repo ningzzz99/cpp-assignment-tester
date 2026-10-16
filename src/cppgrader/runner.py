@@ -16,9 +16,11 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Sequence
 
 from .comparator import compare_output
 from .compiler import DEFAULT_COMPILER, DEFAULT_TIMEOUT_SECONDS, compile_cpp
+from .sanitizers import find_sanitizer_report, runtime_unusable
 from .models import (
     CaseResult, CaseSpec, ComparisonMode, CompileResult, FailureCategory, GradeResult, SuiteSpec,
 )
@@ -62,8 +64,13 @@ def run_case(
     mode: ComparisonMode,
     *,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    sanitized: bool = False,
 ) -> CaseResult:
-    """Run `binary` once on `case`. Never raises for expected failures."""
+    """Run `binary` once on `case`. Never raises for expected failures.
+
+    Set `sanitized` when the binary was built with sanitizers so that their
+    diagnostics on stderr are recognised and fail the test.
+    """
     def result(passed: bool, category: FailureCategory | None, message: str, elapsed: float,
                **kw) -> CaseResult:
         defaults = dict(exit_code=None, signal=None, stdout="", stderr="", output_truncated=False,
@@ -119,6 +126,17 @@ def run_case(
         common.update(output_matches=None, diff="")
         return result(False, FailureCategory.OUTPUT_LIMIT,
                       f"Produced more than {max_output_bytes} bytes of output", elapsed, **common)
+    # Builds use -fno-sanitize-recover=all, so a real finding always ends the program
+    # abnormally. Requiring that keeps a clean exit with look-alike stderr a plain pass.
+    if sanitized and (sig is not None or exit_code != 0):
+        if runtime_unusable(stderr):
+            return result(False, FailureCategory.RUNNER_ERROR,
+                          "The sanitizer runtime could not start on this system (not a defect in "
+                          "the program); try a different --sanitize setting", elapsed, **common)
+        report_line = find_sanitizer_report(stderr)
+        if report_line is not None:
+            return result(False, FailureCategory.SANITIZER,
+                          f"Sanitizer reported: {report_line}", elapsed, **common)
     if sig is not None:
         return result(False, FailureCategory.CRASH,
                       f"Terminated by {_signal_name(sig)}", elapsed, **common)
@@ -145,7 +163,8 @@ def run_suite(
     if not compiled.ok or compiled.binary_path is None:
         raise ValueError(f"Cannot run tests: compilation did not succeed ({compiled.status.value})")
     return [run_case(compiled.binary_path, case, suite.comparison_mode,
-                     max_output_bytes=max_output_bytes) for case in suite.cases]
+                     max_output_bytes=max_output_bytes, sanitized=bool(compiled.sanitizers))
+            for case in suite.cases]
 
 
 def grade_submission(
@@ -156,6 +175,7 @@ def grade_submission(
     compiler: str = DEFAULT_COMPILER,
     compile_timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    sanitizers: Sequence[str] = (),
 ) -> GradeResult:
     """Compile `source` and run all cases, but only if *this* compilation succeeded.
 
@@ -166,7 +186,7 @@ def grade_submission(
     """
     start = time.perf_counter()
     compiled = compile_cpp(source, build_dir, compiler=compiler,
-                           timeout_seconds=compile_timeout_seconds)
+                           timeout_seconds=compile_timeout_seconds, sanitizers=sanitizers)
     try:
         cases = run_suite(compiled, suite, max_output_bytes=max_output_bytes) if compiled.ok else []
     finally:

@@ -20,7 +20,8 @@ Package `src/cppgrader/` (update this list when modules change):
 | Module | Responsibility | Status |
 |---|---|---|
 | `prereqs.py` | Check Python/clang++, run a smoke test | implemented |
-| `cli.py` | Entry point; currently only `--check`, `--smoke`, `--version` | implemented (no grading command yet) |
+| `cli.py` | Entry point: `--check`, `--smoke`, `--version`, and `grade SOURCE TESTS [--report] [--sanitize] [--compile-timeout]` (exit 0 pass / 1 grading failure / 2 tool-config error / 3 report write failure) | implemented |
+| `sanitizers.py` | Probe whether ASan/UBSan work (`check_sanitizer_support`), recognise sanitizer diagnostics (counted only with abnormal termination) | implemented |
 | `compiler.py` | `compile_cpp()`: build a C++17 binary in a temp build dir, capture diagnostics, timeout | implemented |
 | `models.py` | Shared dataclasses/enums (`CompileResult`, `SuiteSpec`, `CaseSpec`, `CaseResult`, `GradeResult`, `FailureCategory`, `ComparisonMode`) | implemented |
 | `test_loader.py` | Parse/validate test-case JSON (`load_suite`, `parse_suite`); rejects unknown keys | implemented |
@@ -28,7 +29,7 @@ Package `src/cppgrader/` (update this list when modules change):
 | `report.py` | `build_report`, `report_to_json`, `write_report` (atomic), `ReportWriteError`; format in `docs/report-format.md` | implemented |
 | `runner.py` | `run_case`, `run_suite`, `grade_submission` (optional caller-owned `build_dir`): run binary with stdin, timeout, output cap, minimal env, signal/exit classification | implemented |
 
-Not yet present: grading CLI, sanitizer mode, Ollama client. `examples/average_calculator/` holds a sample solution and `tests.json`; `tests/fixtures/*.cpp` are small C++ programs used by the tests.
+Not yet present: Ollama client. Sanitizer builds use `compile_cpp(..., sanitizers=...)`; AddressSanitizer does not run on the dev machine (UBSan does). `examples/average_calculator/` holds a sample solution and `tests.json`; `tests/fixtures/*.cpp` are small C++ programs used by the tests.
 
 ## 4. Development commands
 
@@ -39,6 +40,7 @@ Run from the repo root.
 .venv/bin/python -m pytest tests/test_runner.py # one file
 PYTHONPATH=src .venv/bin/python -m cppgrader.cli --check          # verify prerequisites
 PYTHONPATH=src .venv/bin/python -m cppgrader.cli --check --smoke  # also compile + run the example
+PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade examples/average_calculator/solution.cpp examples/average_calculator/tests.json [--report reports/x.json] [--sanitize undefined]
 ```
 
 Installing the package or dev extras (`pip install -e ".[dev]"`) changes the environment; only do it if the user asks.
@@ -57,7 +59,7 @@ Installing the package or dev extras (`pip install -e ".[dev]"`) changes the env
 - Every bug fix gets a regression test that fails before the fix.
 - Run the relevant tests after each change and the full suite before reporting completion.
 - Never claim tests passed unless you ran them in this session; quote the actual result. Report failures and skipped steps plainly.
-- Last verified: full suite, 102 passed (`.venv/bin/python -m pytest`) when this file was written (2026-10-16).
+- Last verified: full suite, 133 passed, 1 skipped (`.venv/bin/python -m pytest`) when this file was written (2026-10-16).
 
 ## 7. Security requirements
 
@@ -74,15 +76,15 @@ Installing the package or dev extras (`pip install -e ".[dev]"`) changes the env
 
 ## 9. Project roadmap
 
-Phase numbers beyond 3 and 8 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
+Phase numbers beyond 5 and 8 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Project foundation, prerequisite check, smoke test CLI | complete (committed) |
 | 2 | C++ compiler module | complete (committed) |
 | 3 | Test-case loading, runner, output comparison, compile-then-run (`grade_submission`) | implemented and verified (82 passed, smoke check ok on 2026-10-16); committed |
-| 4 | Structured JSON reports (`report.py`) | implemented and verified (102 passed, smoke check ok, 2026-10-16); committed |
-| later | Grading CLI, sanitizer mode | not started |
+| 4 | Structured JSON reports (`report.py`) | complete (committed; 102 passed when verified, 2026-10-16) |
+| 5 | Grading CLI and sanitizer mode | implemented and verified (133 passed, 1 skipped (real-ASan test; ASan unusable here), smoke check ok, 2026-10-16); committed |
 | 8 | Optional Ollama explanations (advisory only) | not started |
 
 Update this table only from verified evidence, and never mark a phase complete merely because it was requested.

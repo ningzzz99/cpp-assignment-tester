@@ -40,6 +40,7 @@ def _compile_section(compiled: CompileResult) -> dict[str, Any]:
         "status": compiled.status.value,
         "ok": compiled.ok,
         "has_warnings": compiled.has_warnings,
+        "sanitizers": list(compiled.sanitizers),
         "command": list(compiled.command),
         "return_code": _number(compiled.returncode),
         "stdout": compiled.stdout,
