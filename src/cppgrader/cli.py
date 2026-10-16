@@ -5,8 +5,9 @@ Timeouts are not a sandbox. Only grade code you trust.
 
 Exit codes: 0 all tests passed (or checks ok); 1 grading failure (compile error,
 failed test, or no tests); 2 usage/configuration/tool error (bad arguments or
-test file, source or compiler missing, sanitizers unusable); 3 the report could
-not be written (grading itself completed; its result is still printed).
+test file, source or compiler missing, sanitizers unusable, invalid/non-local
+--ai-endpoint); 3 the report could not be written (grading itself completed; its
+result is still printed). `--ai` suggestions never change the exit code.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from . import ai
 from .compiler import SUPPORTED_SANITIZERS
 from .models import CompileStatus, GradeResult
 from .prereqs import check_prerequisites, smoke_test
@@ -59,6 +61,20 @@ def build_parser() -> argparse.ArgumentParser:
                        f"{', '.join(SUPPORTED_SANITIZERS)}. Checked for toolchain support first")
     grade.add_argument("--compile-timeout", type=float, default=60.0, metavar="SECONDS",
                        help="compiler time limit (default: 60)")
+    advice = grade.add_argument_group(
+        "optional local AI suggestions (advisory; off by default)",
+        "With --ai, failures are sent to a LOCAL Ollama server for suggestions after grading. "
+        "Only loopback endpoints are accepted. AI never changes results, exit codes or files.")
+    advice.add_argument("--ai", action="store_true", help="request AI debugging suggestions after grading")
+    advice.add_argument("--ai-model", default=None, metavar="NAME",
+                        help=f"Ollama model (default: ${ai.MODEL_ENV} or {ai.DEFAULT_MODEL})")
+    advice.add_argument("--ai-endpoint", default=None, metavar="URL",
+                        help=f"local Ollama URL (default: ${ai.ENDPOINT_ENV} or {ai.DEFAULT_ENDPOINT})")
+    advice.add_argument("--ai-timeout", type=float, default=ai.DEFAULT_TIMEOUT_SECONDS, metavar="SECONDS",
+                        help=f"per-request time limit (default: {ai.DEFAULT_TIMEOUT_SECONDS:g})")
+    advice.add_argument("--ai-include-source", action="store_true",
+                        help="also send the first lines of the source when explaining failed tests "
+                             "(compile errors always include lines near the errors)")
     return parser
 
 
@@ -115,6 +131,16 @@ def run_grade(args: argparse.Namespace) -> int:
                 print(f"error: --report would overwrite the {role} ({path}); choose another path",
                       file=sys.stderr)
                 return EXIT_ERROR
+    client = None
+    ai_flags = (args.ai_model, args.ai_endpoint, args.ai_include_source)
+    if args.ai:
+        try:  # validate before grading so a bad/non-local endpoint is a usage error
+            client = ai.OllamaClient(args.ai_endpoint, args.ai_model, args.ai_timeout)
+        except ai.AIConfigError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+    elif any(ai_flags):
+        print("note: --ai-* options are ignored without --ai", file=sys.stderr)
     try:
         suite = load_suite(args.tests)
     except SuiteFormatError as exc:
@@ -137,14 +163,45 @@ def run_grade(args: argparse.Namespace) -> int:
         return EXIT_ERROR
     _print_grade(grade)
 
+    exit_code = EXIT_OK if grade.passed else EXIT_GRADING_FAILED
     if args.report is not None:
         try:
             write_report(build_report(grade, suite), args.report)
             print(f"Report written to {args.report}")
         except ReportWriteError as exc:
             print(f"error: grading completed but the report was not saved: {exc}", file=sys.stderr)
-            return EXIT_REPORT_FAILED
-    return EXIT_OK if grade.passed else EXIT_GRADING_FAILED
+            exit_code = EXIT_REPORT_FAILED
+    if client is not None:
+        _print_ai_advice(grade, suite, args.source, client, args.ai_include_source)
+    return exit_code
+
+
+def _print_ai_advice(grade: GradeResult, suite, source: Path, client: ai.OllamaClient,
+                     include_source: bool) -> None:
+    """Print advisory model output. Cannot affect results or exit codes."""
+    if grade.passed:
+        print("\nAI suggestions: nothing to explain (all tests passed).")
+        return
+    print(f"\n=== AI suggestions (local model {client.model}; advisory, may be wrong; "
+          f"not part of the grade) ===", flush=True)
+    try:
+        explanations, skipped = ai.explain_grade(grade, suite, source, client,
+                                                 include_source=include_source)
+    except KeyboardInterrupt:
+        print("AI suggestions interrupted.", file=sys.stderr)
+        return
+    except Exception as exc:  # AI is advisory: nothing it does may change the grading outcome
+        print(f"AI suggestions unavailable: unexpected error: {exc}", file=sys.stderr)
+        return
+    if not explanations:
+        print("No AI-explainable failure (e.g. compiler missing or timed out).")
+    for item in explanations:
+        if item.text is not None:
+            print(f"\n[{item.subject}]\n{item.text}")
+        else:
+            print(f"\n[{item.subject}] AI suggestion unavailable: {item.error}", file=sys.stderr)
+    if skipped:
+        print(f"\n({skipped} more failed test(s) were not sent to the model.)")
 
 
 def main(argv: list[str] | None = None) -> int:

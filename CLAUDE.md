@@ -4,14 +4,14 @@ Guidance for Claude Code in this repository. Keep it current as the project evol
 
 ## 1. Project overview
 
-`cppgrader` compiles, runs and grades C++17 assignment submissions against JSON test cases, with planned optional local-AI explanations of failures. It is a development prototype and **not a sandbox**. See `README.md` for user-facing docs; do not duplicate them here.
+`cppgrader` compiles, runs and grades C++17 assignment submissions against JSON test cases, with optional local-AI (Ollama) suggestions for failures. It is a development prototype and **not a sandbox**. See `README.md` for user-facing docs; do not duplicate them here.
 
 ## 2. Technology and environment
 
 - Python >= 3.9, standard library only at runtime (`dependencies = []`); `pytest` is the only dev dependency.
 - Target language for graded programs: C++17, compiled with Apple Clang (`clang++`) on macOS.
 - Local virtualenv at `.venv/` (use `.venv/bin/python`). It is git-ignored.
-- **Planned, not implemented:** local Ollama integration (model `qwen2.5-coder:1.5b`, README says Phase 8). No Ollama/AI code exists yet.
+- Optional local AI suggestions via Ollama's HTTP API (`http://localhost:11434`, model `qwen2.5-coder:1.5b`), opt-in with `grade --ai`. Never a cloud/paid API; loopback endpoints only. Not required for tests.
 
 ## 3. Architecture
 
@@ -21,6 +21,7 @@ Package `src/cppgrader/` (update this list when modules change):
 |---|---|---|
 | `prereqs.py` | Check Python/clang++, run a smoke test | implemented |
 | `cli.py` | Entry point: `--check`, `--smoke`, `--version`, and `grade SOURCE TESTS [--report] [--sanitize] [--compile-timeout]` (exit 0 pass / 1 grading failure / 2 tool-config error / 3 report write failure) | implemented |
+| `ai.py` | Optional Ollama client (`OllamaClient`, stdlib `urllib`), bounded prompt builders, `explain_grade`; returns errors as data, never raises into grading | implemented |
 | `sanitizers.py` | Probe whether ASan/UBSan work (`check_sanitizer_support`), recognise sanitizer diagnostics (counted only with abnormal termination) | implemented |
 | `compiler.py` | `compile_cpp()`: build a C++17 binary in a temp build dir, capture diagnostics, timeout | implemented |
 | `models.py` | Shared dataclasses/enums (`CompileResult`, `SuiteSpec`, `CaseSpec`, `CaseResult`, `GradeResult`, `FailureCategory`, `ComparisonMode`) | implemented |
@@ -29,7 +30,7 @@ Package `src/cppgrader/` (update this list when modules change):
 | `report.py` | `build_report`, `report_to_json`, `write_report` (atomic), `ReportWriteError`; format in `docs/report-format.md` | implemented |
 | `runner.py` | `run_case`, `run_suite`, `grade_submission` (optional caller-owned `build_dir`): run binary with stdin, timeout, output cap, minimal env, signal/exit classification | implemented |
 
-Not yet present: Ollama client. Sanitizer builds use `compile_cpp(..., sanitizers=...)`; AddressSanitizer does not run on the dev machine (UBSan does). `examples/average_calculator/` holds a sample solution and `tests.json`; `tests/fixtures/*.cpp` are small C++ programs used by the tests.
+Sanitizer builds use `compile_cpp(..., sanitizers=...)`; AddressSanitizer does not run on the dev machine (UBSan does). `examples/average_calculator/` holds a sample solution and `tests.json`; `tests/fixtures/*.cpp` are small C++ programs used by the tests.
 
 ## 4. Development commands
 
@@ -40,7 +41,7 @@ Run from the repo root.
 .venv/bin/python -m pytest tests/test_runner.py # one file
 PYTHONPATH=src .venv/bin/python -m cppgrader.cli --check          # verify prerequisites
 PYTHONPATH=src .venv/bin/python -m cppgrader.cli --check --smoke  # also compile + run the example
-PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade examples/average_calculator/solution.cpp examples/average_calculator/tests.json [--report reports/x.json] [--sanitize undefined]
+PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade examples/average_calculator/solution.cpp examples/average_calculator/tests.json [--report reports/x.json] [--sanitize undefined] [--ai]
 ```
 
 Installing the package or dev extras (`pip install -e ".[dev]"`) changes the environment; only do it if the user asks.
@@ -59,13 +60,14 @@ Installing the package or dev extras (`pip install -e ".[dev]"`) changes the env
 - Every bug fix gets a regression test that fails before the fix.
 - Run the relevant tests after each change and the full suite before reporting completion.
 - Never claim tests passed unless you ran them in this session; quote the actual result. Report failures and skipped steps plainly.
-- Last verified: full suite, 133 passed, 1 skipped (`.venv/bin/python -m pytest`) when this file was written (2026-10-16).
+- Last verified: full suite, 206 passed, 1 skipped (`.venv/bin/python -m pytest`; the skip is the real-ASan test) when this file was written (2026-10-16).
 
 ## 7. Security requirements
 
 - Timeouts, temp dirs, env scrubbing and output caps are **not a sandbox**. Compiled C++ runs with the user's privileges.
 - Do not compile or execute arbitrary untrusted C++ code, and do not run student submissions that the user has not said are trusted. Only run code in `examples/`, `tests/fixtures/`, or that the user wrote or vouches for.
 - AI output must never decide pass/fail; grading is deterministic (exit status, signal, timeout, output comparison).
+- AI is local-only: `ai.validate_local_endpoint` must keep rejecting non-loopback hosts; never add remote/cloud AI. Prompts stay bounded and mark source/program output as untrusted data. AI failures are reported but must never alter grading results or exit codes.
 - AI output must never modify a student's source file automatically; any suggested change needs explicit user approval.
 
 ## 8. Git rules
@@ -76,7 +78,7 @@ Installing the package or dev extras (`pip install -e ".[dev]"`) changes the env
 
 ## 9. Project roadmap
 
-Phase numbers beyond 5 and 8 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
+Phase numbers beyond 6 are not defined in the repository; do not invent them. Statuses reflect the repo and the last verified test run.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -85,7 +87,7 @@ Phase numbers beyond 5 and 8 are not defined in the repository; do not invent th
 | 3 | Test-case loading, runner, output comparison, compile-then-run (`grade_submission`) | implemented and verified (82 passed, smoke check ok on 2026-10-16); committed |
 | 4 | Structured JSON reports (`report.py`) | complete (committed; 102 passed when verified, 2026-10-16) |
 | 5 | Grading CLI and sanitizer mode | implemented and verified (133 passed, 1 skipped (real-ASan test; ASan unusable here), smoke check ok, 2026-10-16); committed |
-| 8 | Optional Ollama explanations (advisory only) | not started |
+| 6 | Optional local AI debugging suggestions (`ai.py`, `grade --ai`; advisory only) | implemented and verified (206 passed, 1 skipped; real local model exercised, 2026-10-16), committed |
 
 Update this table only from verified evidence, and never mark a phase complete merely because it was requested.
 

@@ -1,7 +1,7 @@
 # cppgrader — C++ Assignment Tester and AI Debugging Assistant
 
-> **Status: early development (Phase 5).** Compilation, test loading, execution, JSON
-> reports, a `grade` CLI and opt-in sanitizer mode exist; AI features do not yet.
+> **Status: early development (Phase 6).** Compilation, test loading, execution, JSON
+> reports, a `grade` CLI, opt-in sanitizer mode and opt-in local AI suggestions exist.
 >
 > **⚠️ Security: this is a development prototype and NOT a sandbox.** It compiles and
 > executes native code with your user's privileges (files, network, processes).
@@ -18,7 +18,7 @@ _TODO (planned: compiler, runner, comparator, reporter, sanitizer mode, optional
 ## Prerequisites (macOS)
 - Python 3.9+
 - Apple Clang: `xcode-select --install`
-- Optional: [Ollama](https://ollama.com) with `qwen2.5-coder:1.5b` (later phases)
+- Optional, only for `--ai`: [Ollama](https://ollama.com) with `qwen2.5-coder:1.5b`
 
 ## Setup and usage
 From the repository root:
@@ -142,8 +142,51 @@ and non-finite numbers, and contain full program output, so treat them as sensit
 A write failure raises `ReportWriteError` and never alters the grading result. The field
 reference is in [docs/report-format.md](docs/report-format.md). There is no CLI command for reports yet.
 
-## Ollama integration
-_TODO (Phase 8)_
+## Local AI debugging suggestions (optional)
+Grading is always done locally and deterministically (compiler, exit status, output
+comparison). `--ai` additionally asks a **local** model for *suggestions* about a compile
+error or failed tests. The text is advice from a small language model: it can be wrong,
+is never part of the grade, and **never changes results, the report, exit codes, or your files**.
+It is off by default and the tool never downloads a model or starts Ollama for you.
+
+**Setup (once):**
+```bash
+# install Ollama from https://ollama.com, then:
+ollama serve                   # leave running (if not already started by the Ollama app)
+ollama pull qwen2.5-coder:1.5b # ~1 GB download
+```
+**Use:**
+```bash
+PYTHONPATH=src .venv/bin/python -m cppgrader.cli grade SOURCE.cpp TESTS.json --ai
+```
+| Option | Meaning |
+|---|---|
+| `--ai` | Request suggestions after grading (compile error, or up to 3 failed tests) |
+| `--ai-model NAME` | Model (default `qwen2.5-coder:1.5b`, or env `CPPGRADER_OLLAMA_MODEL`) |
+| `--ai-endpoint URL` | Ollama URL (default `http://localhost:11434`, or env `CPPGRADER_OLLAMA_URL`) |
+| `--ai-timeout SECONDS` | Per-request limit, enforced as an overall deadline on the response (default 120; small models on CPU can be slow) |
+| `--ai-include-source` | Also send the first 60 lines of the source for failed tests |
+
+**Privacy.** Only loopback endpoints (`localhost`, `127.0.0.1`, `::1`, plain `http`) are accepted;
+anything else is a usage error (exit 2) and nothing is graded. A hostname such as `localhost` must resolve only to loopback addresses (checked once when the
+client is created; a resolver that changes its answer later is out of scope). Redirects are not
+followed and proxy environment variables are ignored. What is sent: the compiler diagnostics (capped at 4000
+characters) plus source lines around the reported errors; for failed tests the test input,
+expected and actual output, diff and stderr (1000 characters each); the source only with
+`--ai-include-source`. Prompts mark all of it as untrusted data, but a small model can still be
+steered by hostile text in a submission, which is another reason to treat output as advice only.
+Model output is stripped of control and formatting characters before printing, and the response
+size is capped while it is being read. Ctrl-C during suggestions skips them and keeps the grading exit code.
+
+**Behavior.** Suggestions print after the `RESULT:` line (and after the report is written).
+If Ollama is unreachable, times out, lacks the model or returns garbage, a one-line
+"AI suggestion unavailable" message goes to stderr and the exit code is unchanged. If the server
+is down only one request is attempted.
+
+**Troubleshooting.** *Could not reach Ollama*: run `ollama serve`. *Model not available*:
+`ollama pull qwen2.5-coder:1.5b`. *Timed out*: raise `--ai-timeout` (the first request loads
+the model and can take over a minute). Poor answers: the 1.5B model is small and sometimes
+hallucinates; the compiler diagnostics shown above the suggestions are authoritative.
 
 ## Running tests and benchmarks
 ```bash
@@ -153,6 +196,7 @@ python3 -m pip install -e ".[dev]"   # installs pytest (once)
 
 ## Known limitations and security considerations
 - Not safe for untrusted submissions; subprocess timeouts are not a sandbox.
+- AI suggestions come from a small local model, are unverified, and are not part of the grade.
 
 ## Future improvements
 _TODO_
