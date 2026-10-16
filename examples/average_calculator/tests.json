@@ -1,0 +1,9 @@
+{
+  "assignment": "Average Calculator",
+  "comparison": { "mode": "strict" },
+  "tests": [
+    { "name": "normal_values", "input": "4\n2 4 6 8\n", "expected_output": "5\n", "timeout_seconds": 2 },
+    { "name": "single_value", "input": "1\n7\n", "expected_output": "7\n", "timeout_seconds": 2 },
+    { "name": "negative_values", "input": "3\n-1 -2 -6\n", "expected_output": "-3\n", "timeout_seconds": 2 }
+  ]
+}

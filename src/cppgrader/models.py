@@ -42,3 +42,60 @@ class CompileResult:
         """Remove the build directory, but only if this module created it."""
         if self._owns_build_dir and self.build_dir is not None:
             shutil.rmtree(self.build_dir, ignore_errors=True)
+
+
+class ComparisonMode(str, Enum):
+    STRICT = "strict"
+    NORMALIZED_WHITESPACE = "normalized_whitespace"
+
+
+@dataclass(frozen=True)
+class CaseSpec:
+    name: str
+    input: str
+    expected_output: str
+    timeout_seconds: float
+
+
+@dataclass(frozen=True)
+class SuiteSpec:
+    assignment: str
+    comparison_mode: ComparisonMode
+    cases: tuple[CaseSpec, ...]
+
+
+class FailureCategory(str, Enum):
+    WRONG_OUTPUT = "wrong_output"
+    NON_ZERO_EXIT = "non_zero_exit"
+    CRASH = "crash"  # terminated by a signal
+    TIMEOUT = "timeout"
+    OUTPUT_LIMIT = "output_limit_exceeded"
+    RUNNER_ERROR = "runner_error"  # the grader could not start the program
+
+
+@dataclass
+class CaseResult:
+    name: str
+    passed: bool
+    category: FailureCategory | None
+    exit_code: int | None  # None when killed by a signal or never started
+    signal: int | None
+    elapsed_seconds: float
+    stdout: str
+    stderr: str
+    output_truncated: bool
+    output_matches: bool | None  # None when output was not compared
+    diff: str  # empty unless output differs
+    message: str
+
+
+@dataclass
+class GradeResult:
+    assignment: str
+    compile: CompileResult
+    cases: list[CaseResult]
+    total_seconds: float
+
+    @property
+    def passed(self) -> bool:
+        return self.compile.ok and bool(self.cases) and all(c.passed for c in self.cases)

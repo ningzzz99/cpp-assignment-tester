@@ -74,6 +74,16 @@ def compile_cpp(
         result.cleanup()
         return result
     binary = out_dir / "program"
+    # Remove any binary left by an earlier build so a failed compile can never
+    # leave something runnable behind. This is the exact path `-o` would overwrite.
+    try:
+        if binary.is_file() or binary.is_symlink():
+            binary.unlink()
+    except OSError as exc:
+        result = failure(CompileStatus.BUILD_DIR_ERROR, [],
+                         f"Could not remove stale binary '{binary}': {exc}", **dir_info)
+        result.cleanup()
+        return result
     command = build_command(compiler_path, source_path, binary)
 
     try:
